@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>工资单批量生成</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace">
+        <div class="panel upload-panel">
+          <div class="title-row">
+            <div>
+              <h1>工资单批量生成</h1>
+              <p>上传每月工资表，自动生成每位员工的 PDF 工资单并打包下载。</p>
+            </div>
+            <span class="badge">本地处理</span>
+          </div>
+
+          <form id="uploadForm">
+            <label class="drop-zone" for="fileInput">
+              <input id="fileInput" name="file" type="file" accept=".xlsx,.xlsm" />
+              <span class="file-icon">↓</span>
+              <strong id="fileName">选择或拖入工资表</strong>
+              <small>.xlsx / .xlsm</small>
+            </label>
+
+            <button id="generateButton" type="submit" disabled>生成 ZIP</button>
+          </form>
+        </div>
+
+        <div class="panel status-panel">
+          <h2>生成状态</h2>
+          <div id="emptyState" class="empty-state">等待上传工资表</div>
+          <div id="result" class="result hidden"></div>
+        </div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
