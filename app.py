@@ -215,12 +215,8 @@ def parse_workbook(file_stream) -> tuple[list[dict[str, Any]], list[str], list[s
 
         name = str(ws.cell(row_index, name_col).value or "").strip()
         month = ws.cell(row_index, month_col).value
-        row_has_content = any(ws.cell(row_index, col).value not in (None, "") for col in range(1, ws.max_column + 1))
-        if not row_has_content:
-            continue
 
         if not name:
-            warnings.append(f"第 {row_index} 行缺少姓名，已跳过。")
             continue
         if not month:
             warnings.append(f"第 {row_index} 行缺少月份，已跳过。")

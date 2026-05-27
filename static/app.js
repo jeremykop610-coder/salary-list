@@ -13,13 +13,25 @@ function setFile(file) {
   fileInput.files = dt.files;
   fileName.textContent = file.name;
   button.disabled = false;
-  showEmpty();
+  showSelected(file);
 }
 
 function showEmpty() {
   result.classList.add("hidden");
   result.innerHTML = "";
   emptyState.classList.remove("hidden");
+}
+
+function showSelected(file) {
+  emptyState.classList.add("hidden");
+  result.classList.remove("hidden");
+  result.innerHTML = `<div class="summary">已选择工资表：${file.name}。点击“生成 ZIP”开始上传并生成工资单。</div>`;
+}
+
+function showWorking(file) {
+  emptyState.classList.add("hidden");
+  result.classList.remove("hidden");
+  result.innerHTML = `<div class="summary">工资表已上传：${file.name}。正在生成 ZIP...</div>`;
 }
 
 function listBlock(title, items, type) {
@@ -55,7 +67,7 @@ fileInput.addEventListener("change", () => {
   if (file) {
     fileName.textContent = file.name;
     button.disabled = false;
-    showEmpty();
+    showSelected(file);
   }
 });
 
@@ -80,6 +92,7 @@ form.addEventListener("submit", async (event) => {
 
   button.disabled = true;
   button.textContent = "生成中...";
+  showWorking(fileInput.files[0]);
 
   const data = new FormData();
   data.append("file", fileInput.files[0]);
