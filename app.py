@@ -80,7 +80,13 @@ PAYSLIP_FIELD_SPECS = [
     ("基本工资", "basic_salary"),
     ("岗位工资", "position_salary"),
     ("绩效工资", "performance_salary"),
+    ("灵活涨薪", "flex_raise"),
+    ("加班费", "overtime"),
+    ("奖金", "bonus"),
     ("请假扣款", "leave_deduction"),
+    ("提成", "commission"),
+    ("餐补", "meal_allowance"),
+    ("其他", "other"),
     ("小计", "subtotal"),
     ("养老保险", "pension"),
     ("医疗保险", "medical"),
@@ -239,45 +245,65 @@ def draw_payslip_from_template(row: dict[str, Any]) -> bytes:
     c = canvas.Canvas(overlay_buffer, pagesize=(width, height))
     c.setFillColorRGB(1, 1, 1)
 
-    # Hide the sample values in the template while preserving labels, logo, and spacing.
-    c.rect(232, height - 263, 135, 28, fill=1, stroke=0)
-    for y in [height - 303.53 - i * 27 for i in range(6)]:
-        c.rect(296, y - 7, 150, 24, fill=1, stroke=0)
-    for y in [height - 492.53 - i * 27 for i in range(4)]:
-        c.rect(296, y - 7, 150, 24, fill=1, stroke=0)
-    for y in [height - 627.53, height - 654.53, height - 681.53]:
-        c.rect(296, y - 7, 160, 24, fill=1, stroke=0)
+    # Hide the sample month and body in the template while preserving logo, title, and page geometry.
+    c.rect(185, height - 282, 230, 58, fill=1, stroke=0)
+    c.rect(120, height - 720, 380, 450, fill=1, stroke=0)
 
     c.setFont(PAYSLIP_FONT, 16)
     c.setFillGray(0.45)
     c.drawCentredString(width / 2, height - 249.53, display_month(row["month"]))
 
+    label_x = 216
+    colon_x = 280
     value_x = 300
-    c.drawString(value_x, height - 303.53, str(row["name"]))
+    y = height - 303.53
+    line_height = 23
+    section_gap = 11
 
-    value_positions = [
-        ("basic_salary", height - 330.53, False),
-        ("position_salary", height - 357.53, False),
-        ("performance_salary", height - 384.53, False),
-        ("leave_deduction", height - 411.53, False),
-        ("subtotal", height - 438.53, False),
-        ("pension", height - 492.53, False),
-        ("medical", height - 519.53, False),
-        ("unemployment", height - 546.53, False),
-        ("housing_fund", height - 573.53, False),
-        ("pre_tax_income", height - 627.53, False),
-        ("tax", height - 654.53, False),
-        ("after_tax_income", height - 681.53, True),
+    c.setFillGray(0.45)
+    draw_aligned_label(c, "姓名", label_x, colon_x, y)
+    draw_text(c, value_x, y, str(row["name"]))
+    y -= line_height
+
+    sections = [
+        ["basic_salary", "position_salary", "performance_salary", "flex_raise", "overtime", "bonus", "leave_deduction", "commission", "meal_allowance", "other", "subtotal"],
+        ["pension", "medical", "unemployment", "housing_fund"],
+        ["pre_tax_income", "tax", "after_tax_income"],
     ]
-    for key, y, bold in value_positions:
-        if bold:
+    labels = {key: label for label, key in PAYSLIP_FIELD_SPECS}
+
+    for section_index, section in enumerate(sections):
+        visible_keys = [key for key in section if amount(row.get(key)) != 0]
+        if not visible_keys:
+            continue
+        if section_index > 0:
+            y -= section_gap
+        for key in visible_keys:
+            is_bold = key == "after_tax_income"
+            if is_bold:
+                c.setFillGray(0)
+            else:
+                c.setFillGray(0.45)
+            draw_aligned_label(c, labels[key], label_x, colon_x, y, bold=is_bold)
+            number = money_number(row.get(key))
+            draw_text(c, value_x, y, number, bold=is_bold)
+            unit_x = value_x + pdfmetrics.stringWidth(number, PAYSLIP_FONT, 16) + 8
+            draw_text(c, unit_x, y, "元", bold=is_bold)
+            y -= line_height
+
+    if y < 80:
+        c.setFont(PAYSLIP_FONT, 10)
+        c.setFillGray(0.45)
+        c.drawString(90, 60, "提示：当前非零项目较多，已按紧凑行距生成。")
+
+    if not any(amount(row.get(key)) != 0 for _label, key in PAYSLIP_FIELD_SPECS):
+        c.setFillGray(0)
+        c.setFont(PAYSLIP_FONT, 16)
+        c.drawCentredString(width / 2, height - 360, "本月无非零工资项目")
+    else:
+        c.setFont(PAYSLIP_FONT, 16)
+        if amount(row.get("after_tax_income")) != 0:
             c.setFillGray(0)
-        else:
-            c.setFillGray(0.45)
-        number = money_number(row.get(key))
-        draw_text(c, value_x, y, number, bold=bold)
-        unit_x = value_x + pdfmetrics.stringWidth(number, PAYSLIP_FONT, 16) + 8
-        draw_text(c, unit_x, y, "元", bold=bold)
 
     c.save()
     overlay_buffer.seek(0)
