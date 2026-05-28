@@ -15,6 +15,7 @@ from typing import Any
 from urllib.parse import quote, unquote
 
 from openpyxl import load_workbook
+from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
@@ -25,9 +26,11 @@ from reportlab.pdfgen import canvas
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
 LOGO_PATH = BASE_DIR / "static" / "andrea-tang-logo.jpg"
+TEMPLATE_PDF_PATH = BASE_DIR / "static" / "payslip-template.pdf"
 PAYSLIP_FONT_PATHS = [
     BASE_DIR / "static" / "FZLTCXHJW.ttf",
     BASE_DIR / "static" / "FZLTCXHJW.otf",
+    BASE_DIR / "static" / "FZLTCXHJW-GB1-0.ttf",
     BASE_DIR / "static" / "方正兰亭超细黑简体.ttf",
     BASE_DIR / "static" / "方正兰亭超细黑简体.otf",
 ]
@@ -177,6 +180,9 @@ def draw_aligned_label(c: canvas.Canvas, label: str, x: float, colon_x: float, y
 
 
 def draw_payslip(row: dict[str, Any]) -> bytes:
+    if TEMPLATE_PDF_PATH.exists():
+        return draw_payslip_from_template(row)
+
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
@@ -222,6 +228,68 @@ def draw_payslip(row: dict[str, Any]) -> bytes:
     c.showPage()
     c.save()
     return buffer.getvalue()
+
+
+def draw_payslip_from_template(row: dict[str, Any]) -> bytes:
+    template_page = PdfReader(str(TEMPLATE_PDF_PATH)).pages[0]
+    width = float(template_page.mediabox.width)
+    height = float(template_page.mediabox.height)
+
+    overlay_buffer = io.BytesIO()
+    c = canvas.Canvas(overlay_buffer, pagesize=(width, height))
+    c.setFillColorRGB(1, 1, 1)
+
+    # Hide the sample values in the template while preserving labels, logo, and spacing.
+    c.rect(232, height - 263, 135, 28, fill=1, stroke=0)
+    for y in [height - 303.53 - i * 27 for i in range(6)]:
+        c.rect(296, y - 7, 150, 24, fill=1, stroke=0)
+    for y in [height - 492.53 - i * 27 for i in range(4)]:
+        c.rect(296, y - 7, 150, 24, fill=1, stroke=0)
+    for y in [height - 627.53, height - 654.53, height - 681.53]:
+        c.rect(296, y - 7, 160, 24, fill=1, stroke=0)
+
+    c.setFont(PAYSLIP_FONT, 16)
+    c.setFillGray(0.45)
+    c.drawCentredString(width / 2, height - 249.53, display_month(row["month"]))
+
+    value_x = 300
+    c.drawString(value_x, height - 303.53, str(row["name"]))
+
+    value_positions = [
+        ("basic_salary", height - 330.53, False),
+        ("position_salary", height - 357.53, False),
+        ("performance_salary", height - 384.53, False),
+        ("leave_deduction", height - 411.53, False),
+        ("subtotal", height - 438.53, False),
+        ("pension", height - 492.53, False),
+        ("medical", height - 519.53, False),
+        ("unemployment", height - 546.53, False),
+        ("housing_fund", height - 573.53, False),
+        ("pre_tax_income", height - 627.53, False),
+        ("tax", height - 654.53, False),
+        ("after_tax_income", height - 681.53, True),
+    ]
+    for key, y, bold in value_positions:
+        if bold:
+            c.setFillGray(0)
+        else:
+            c.setFillGray(0.45)
+        number = money_number(row.get(key))
+        draw_text(c, value_x, y, number, bold=bold)
+        unit_x = value_x + pdfmetrics.stringWidth(number, PAYSLIP_FONT, 16) + 8
+        draw_text(c, unit_x, y, "元", bold=bold)
+
+    c.save()
+    overlay_buffer.seek(0)
+
+    overlay_page = PdfReader(overlay_buffer).pages[0]
+    template_page.merge_page(overlay_page)
+
+    output = io.BytesIO()
+    writer = PdfWriter()
+    writer.add_page(template_page)
+    writer.write(output)
+    return output.getvalue()
 
 
 def parse_workbook(file_stream) -> tuple[list[dict[str, Any]], list[str], list[str]]:
