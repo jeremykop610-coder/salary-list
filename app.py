@@ -18,16 +18,37 @@ from openpyxl import load_workbook
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
 LOGO_PATH = BASE_DIR / "static" / "andrea-tang-logo.jpg"
+PAYSLIP_FONT_PATHS = [
+    BASE_DIR / "static" / "FZLTCXHJW.ttf",
+    BASE_DIR / "static" / "FZLTCXHJW.otf",
+    BASE_DIR / "static" / "方正兰亭超细黑简体.ttf",
+    BASE_DIR / "static" / "方正兰亭超细黑简体.otf",
+]
 OUTPUT_DIR.mkdir(exist_ok=True)
 OUTPUT_TTL_SECONDS = 60 * 60
 
 pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+
+
+def register_payslip_font() -> str:
+    for font_path in PAYSLIP_FONT_PATHS:
+        if font_path.exists():
+            try:
+                pdfmetrics.registerFont(TTFont("FZLantingUltraLight", str(font_path)))
+                return "FZLantingUltraLight"
+            except Exception:
+                continue
+    return "STSong-Light"
+
+
+PAYSLIP_FONT = register_payslip_font()
 
 
 FIELD_SPECS = [
@@ -57,13 +78,13 @@ PAYSLIP_FIELD_SPECS = [
     ("岗位工资", "position_salary"),
     ("绩效工资", "performance_salary"),
     ("请假扣款", "leave_deduction"),
-    ("小    计", "subtotal"),
+    ("小计", "subtotal"),
     ("养老保险", "pension"),
     ("医疗保险", "medical"),
     ("失业保险", "unemployment"),
-    ("公 积 金", "housing_fund"),
+    ("公积金", "housing_fund"),
     ("税前收入", "pre_tax_income"),
-    ("个    税", "tax"),
+    ("个税", "tax"),
     ("税后收入", "after_tax_income"),
 ]
 
@@ -135,6 +156,26 @@ def make_unique_filename(base: str, used: dict[str, int]) -> str:
     return f"{safe_base}{suffix}.pdf"
 
 
+def draw_text(c: canvas.Canvas, x: float, y: float, text: str, *, bold: bool = False) -> None:
+    c.drawString(x, y, text)
+    if bold:
+        c.drawString(x + 0.28, y, text)
+
+
+def draw_aligned_label(c: canvas.Canvas, label: str, x: float, colon_x: float, y: float, *, bold: bool = False) -> None:
+    chars = list(label)
+    font_size = 16
+    if len(chars) <= 4:
+        char_width = pdfmetrics.stringWidth("税", PAYSLIP_FONT, font_size)
+        step = 0 if len(chars) == 1 else (colon_x - x - char_width) / (len(chars) - 1)
+        for index, char in enumerate(chars):
+            draw_text(c, x + index * step, y, char, bold=bold)
+    else:
+        text_width = pdfmetrics.stringWidth(label, PAYSLIP_FONT, font_size)
+        draw_text(c, colon_x - text_width, y, label, bold=bold)
+    draw_text(c, colon_x, y, ":", bold=bold)
+
+
 def draw_payslip(row: dict[str, Any]) -> bytes:
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
@@ -145,34 +186,37 @@ def draw_payslip(row: dict[str, Any]) -> bytes:
     if LOGO_PATH.exists():
         c.drawImage(str(LOGO_PATH), 126.72, height - 121.8 - 42.96, width=345.84, height=42.96)
 
-    c.setFillGray(0.35)
-    c.setFont("STSong-Light", 36)
-    c.drawCentredString(width / 2, height - 208.01, "工资单")
+    c.setFillGray(0.2)
+    c.setFont(PAYSLIP_FONT, 36)
+    c.drawCentredString(width / 2, height - 229, "工资单")
 
     c.setFillGray(0.45)
-    c.setFont("STSong-Light", 16)
-    c.drawCentredString(width / 2, height - 249.53, display_month(row["month"]))
+    c.setFont(PAYSLIP_FONT, 16)
+    c.drawCentredString(width / 2, height - 267, display_month(row["month"]))
 
     label_x = 216
+    colon_x = 280
     value_x = 300
-    y = height - 303.53
+    y = height - 318
     line_height = 27
 
     c.setFillGray(0.45)
-    c.setFont("STSong-Light", 16)
-    c.drawString(label_x, y, "姓    名:")
-    c.drawString(value_x, y, str(row["name"]))
+    c.setFont(PAYSLIP_FONT, 16)
+    draw_aligned_label(c, "姓名", label_x, colon_x, y)
+    draw_text(c, value_x, y, str(row["name"]))
     y -= line_height
 
     for index, (display_name, key) in enumerate(PAYSLIP_FIELD_SPECS):
-        if index in {5, 11}:
+        if index in {5, 9}:
             y -= line_height
+        is_bold = key == "after_tax_income"
         if key == "after_tax_income":
             c.setFillGray(0)
-        c.drawString(label_x, y, f"{display_name}:")
+        draw_aligned_label(c, display_name, label_x, colon_x, y, bold=is_bold)
         number = money_number(row.get(key))
-        c.drawString(value_x, y, number)
-        c.drawString(value_x + pdfmetrics.stringWidth(number, "STSong-Light", 16) + 8, y, "元")
+        draw_text(c, value_x, y, number, bold=is_bold)
+        unit_x = value_x + pdfmetrics.stringWidth(number, PAYSLIP_FONT, 16) + 8
+        draw_text(c, unit_x, y, "元", bold=is_bold)
         y -= line_height
 
     c.showPage()
