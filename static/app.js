@@ -25,13 +25,13 @@ function showEmpty() {
 function showSelected(file) {
   emptyState.classList.add("hidden");
   result.classList.remove("hidden");
-  result.innerHTML = `<div class="summary">已选择工资表：${file.name}。点击“生成 ZIP”开始上传并生成工资单。</div>`;
+  result.innerHTML = `<div class="summary">已选择工资表：${file.name}。点击“生成 ZIP”开始上传并生成 Word 工资单。</div>`;
 }
 
 function showWorking(file) {
   emptyState.classList.add("hidden");
   result.classList.remove("hidden");
-  result.innerHTML = `<div class="summary">工资表已上传：${file.name}。正在生成 ZIP...</div>`;
+  result.innerHTML = `<div class="summary">工资表已上传：${file.name}。正在生成 Word ZIP...</div>`;
 }
 
 function listBlock(title, items, type) {
@@ -50,7 +50,7 @@ function showResult(payload) {
 
   if (payload.ok) {
     result.innerHTML = `
-      <div class="summary">已生成 ${payload.count} 份 PDF 工资单。</div>
+      <div class="summary">已生成 ${payload.count} 份 Word 工资单。</div>
       <a class="download-link" href="${payload.downloadUrl}">下载 ${payload.fileName}</a>
       ${listBlock("生成提示", payload.warnings, "warning")}
     `;

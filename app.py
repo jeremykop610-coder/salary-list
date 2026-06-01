@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote
 
+from copy import deepcopy
+from docx import Document
+from docx.oxml.ns import qn
+from docx.shared import Pt
 from openpyxl import load_workbook
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import A4
@@ -27,6 +31,7 @@ BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
 LOGO_PATH = BASE_DIR / "static" / "andrea-tang-logo.jpg"
 TEMPLATE_PDF_PATH = BASE_DIR / "static" / "payslip-template.pdf"
+TEMPLATE_DOCX_PATH = BASE_DIR / "static" / "payslip-template.docx"
 PAYSLIP_FONT_PATHS = [
     BASE_DIR / "static" / "FZLTCXHJW.ttf",
     BASE_DIR / "static" / "FZLTCXHJW.otf",
@@ -96,6 +101,19 @@ PAYSLIP_FIELD_SPECS = [
     ("个税", "tax"),
     ("税后收入", "after_tax_income"),
 ]
+
+
+LABEL_OVERRIDES = {
+    "姓名": "姓    名",
+    "小计": "小    计",
+    "公积金": "公 积 金",
+    "个税": "个    税",
+    "加班费": "加 班 费",
+    "奖金": "奖    金",
+    "提成": "提    成",
+    "餐补": "餐    补",
+    "其他": "其    他",
+}
 
 
 def normalize_label(value: Any) -> str:
@@ -183,6 +201,104 @@ def draw_aligned_label(c: canvas.Canvas, label: str, x: float, colon_x: float, y
         text_width = pdfmetrics.stringWidth(label, PAYSLIP_FONT, font_size)
         draw_text(c, colon_x - text_width, y, label, bold=bold)
     draw_text(c, colon_x, y, ":", bold=bold)
+
+
+def word_month(month: Any) -> str:
+    text = str(month or "").strip()
+    match = re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月", text)
+    if match:
+        return f"{match.group(1)}年{match.group(2)}月"
+    return text
+
+
+def word_label(label: str) -> str:
+    if label in LABEL_OVERRIDES:
+        return LABEL_OVERRIDES[label]
+    if len(label) <= 4:
+        return label
+    return label
+
+
+def set_run_font(run, *, bold: bool = False, font_name: str = "方正兰亭超细黑简体") -> None:
+    run.font.name = font_name
+    run.font.size = Pt(16)
+    run.bold = bold
+    r_pr = run._element.get_or_add_rPr()
+    r_fonts = r_pr.rFonts
+    if r_fonts is None:
+        from docx.oxml import OxmlElement
+
+        r_fonts = OxmlElement("w:rFonts")
+        r_pr.append(r_fonts)
+    r_fonts.set(qn("w:eastAsia"), font_name)
+    r_fonts.set(qn("w:ascii"), font_name)
+    r_fonts.set(qn("w:hAnsi"), font_name)
+
+
+def copy_paragraph_format(source, target) -> None:
+    source_p_pr = source._p.pPr
+    if source_p_pr is not None:
+        target._p.get_or_add_pPr()
+        target._p.pPr.clear()
+        for child in source_p_pr:
+            target._p.pPr.append(deepcopy(child))
+
+
+def remove_paragraph(paragraph) -> None:
+    element = paragraph._element
+    element.getparent().remove(element)
+    paragraph._p = paragraph._element = None
+
+
+def add_docx_line(doc: Document, prototype, label: str = "", value: str = "", *, bold: bool = False) -> None:
+    paragraph = doc.add_paragraph(style=prototype.style)
+    copy_paragraph_format(prototype, paragraph)
+    if not label and not value:
+        run = paragraph.add_run("\t")
+        set_run_font(run)
+        return
+    label_run = paragraph.add_run(f"{word_label(label)}:\t")
+    set_run_font(label_run, bold=bold)
+    if value:
+        value_run = paragraph.add_run(value)
+        set_run_font(value_run, bold=bold)
+
+
+def build_payslip_docx(row: dict[str, Any]) -> bytes:
+    doc = Document(str(TEMPLATE_DOCX_PATH))
+    body_prototype = doc.paragraphs[4]
+
+    month_paragraph = doc.paragraphs[2]
+    month_paragraph.clear()
+    month_run = month_paragraph.add_run(word_month(row["month"]))
+    set_run_font(month_run)
+    month_run.bold = False
+
+    for paragraph in list(doc.paragraphs[4:]):
+        remove_paragraph(paragraph)
+
+    add_docx_line(doc, body_prototype, "姓名", str(row["name"]))
+
+    sections = [
+        ["basic_salary", "position_salary", "performance_salary", "flex_raise", "overtime", "bonus", "leave_deduction", "commission", "meal_allowance", "other", "subtotal"],
+        ["pension", "medical", "unemployment", "housing_fund"],
+        ["pre_tax_income", "tax", "after_tax_income"],
+    ]
+    labels = {key: label for label, key in PAYSLIP_FIELD_SPECS}
+
+    for section_index, section in enumerate(sections):
+        visible_keys = [key for key in section if amount(row.get(key)) != 0]
+        if not visible_keys:
+            continue
+        if section_index > 0:
+            add_docx_line(doc, body_prototype)
+        for key in visible_keys:
+            is_bold = key == "after_tax_income"
+            add_docx_line(doc, body_prototype, labels[key], money(row.get(key)), bold=is_bold)
+
+    output = io.BytesIO()
+    doc.save(output)
+    return output.getvalue()
 
 
 def draw_payslip(row: dict[str, Any]) -> bytes:
@@ -418,14 +534,14 @@ def generate_zip(file_name: str, content: bytes) -> tuple[int, dict[str, Any]]:
         return 400, {"ok": False, "errors": errors, "warnings": warnings}
 
     first_month = month_prefix(employees[0]["month"])
-    zip_name = clean_filename(f"{first_month}工资单.zip")
+    zip_name = clean_filename(f"{first_month}工资单Word版.zip")
     zip_path = OUTPUT_DIR / f"{uuid.uuid4().hex}-{zip_name}"
     used_names: dict[str, int] = {}
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
         for employee in employees:
-            pdf_name = make_unique_filename(f"{month_prefix(employee['month'])}工资单-{employee['name']}", used_names)
-            zip_file.writestr(pdf_name, draw_payslip(employee))
+            docx_name = make_unique_filename(f"{month_prefix(employee['month'])}工资单-{employee['name']}", used_names).replace(".pdf", ".docx")
+            zip_file.writestr(docx_name, build_payslip_docx(employee))
 
         if warnings:
             zip_file.writestr("生成提示.txt", "\n".join(warnings).encode("utf-8"))
