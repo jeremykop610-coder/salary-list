@@ -149,6 +149,14 @@ def amount(value: Any) -> Decimal:
         return Decimal("0")
 
 
+def has_cell_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip() != ""
+    return True
+
+
 def money(value: Any) -> str:
     return f"{amount(value).quantize(Decimal('0.01'))} 元"
 
@@ -287,7 +295,7 @@ def build_payslip_docx(row: dict[str, Any]) -> bytes:
     labels = {key: label for label, key in PAYSLIP_FIELD_SPECS}
 
     for section_index, section in enumerate(sections):
-        visible_keys = [key for key in section if amount(row.get(key)) != 0]
+        visible_keys = [key for key in section if has_cell_value(row.get(key))]
         if not visible_keys:
             continue
         if section_index > 0:
@@ -295,6 +303,10 @@ def build_payslip_docx(row: dict[str, Any]) -> bytes:
         for key in visible_keys:
             is_bold = key == "after_tax_income"
             add_docx_line(doc, body_prototype, labels[key], money(row.get(key)), bold=is_bold)
+
+    remark = str(row.get("remark") or "").strip()
+    if remark:
+        add_docx_line(doc, body_prototype, "备注", remark)
 
     output = io.BytesIO()
     doc.save(output)
@@ -389,7 +401,7 @@ def draw_payslip_from_template(row: dict[str, Any]) -> bytes:
     labels = {key: label for label, key in PAYSLIP_FIELD_SPECS}
 
     for section_index, section in enumerate(sections):
-        visible_keys = [key for key in section if amount(row.get(key)) != 0]
+        visible_keys = [key for key in section if has_cell_value(row.get(key))]
         if not visible_keys:
             continue
         if section_index > 0:
@@ -412,13 +424,20 @@ def draw_payslip_from_template(row: dict[str, Any]) -> bytes:
         c.setFillGray(0.45)
         c.drawString(90, 60, "提示：当前非零项目较多，已按紧凑行距生成。")
 
-    if not any(amount(row.get(key)) != 0 for _label, key in PAYSLIP_FIELD_SPECS):
+    remark = str(row.get("remark") or "").strip()
+    if remark:
+        c.setFillGray(0.45)
+        draw_aligned_label(c, "备注", label_x, colon_x, y)
+        draw_text(c, value_x, y, remark)
+        y -= line_height
+
+    if not any(has_cell_value(row.get(key)) for _label, key in PAYSLIP_FIELD_SPECS):
         c.setFillGray(0)
         c.setFont(PAYSLIP_FONT, 16)
         c.drawCentredString(width / 2, height - 360, "本月无非零工资项目")
     else:
         c.setFont(PAYSLIP_FONT, 16)
-        if amount(row.get("after_tax_income")) != 0:
+        if has_cell_value(row.get("after_tax_income")):
             c.setFillGray(0)
 
     c.save()
@@ -443,6 +462,7 @@ def parse_workbook(file_stream) -> tuple[list[dict[str, Any]], list[str], list[s
     header_map = build_header_map(ws)
     name_col = find_column(header_map, "姓名")
     month_col = find_column(header_map, "月份")
+    remark_col = find_column(header_map, "备注")
 
     field_columns: dict[str, int | None] = {}
     for _display, excel_name, key in FIELD_SPECS:
@@ -479,6 +499,8 @@ def parse_workbook(file_stream) -> tuple[list[dict[str, Any]], list[str], list[s
         employee = {"name": name, "month": month}
         for _display, _excel_name, key in FIELD_SPECS:
             employee[key] = ws.cell(row_index, field_columns[key]).value
+        if remark_col:
+            employee["remark"] = ws.cell(row_index, remark_col).value
         employees.append(employee)
 
     if not employees:
