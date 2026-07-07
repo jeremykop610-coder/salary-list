@@ -8,20 +8,29 @@
   </head>
   <body>
     <main class="app-shell">
+      <header class="brand-bar" aria-label="Andrea Tang payroll tools">
+        <img class="brand-logo" src="/andrea-tang-wordmark.png" alt="Andrea Tang" />
+        <div class="brand-meta">
+          <span>Payroll Studio</span>
+          <span>Word Payslip ZIP</span>
+        </div>
+      </header>
+
       <section class="workspace">
         <div class="panel upload-panel">
           <div class="title-row">
             <div>
+              <span class="eyebrow">Monthly Payroll</span>
               <h1>工资单批量生成</h1>
-              <p>上传每月工资表，自动生成每位员工的 Word 工资单并打包下载。</p>
+              <p>上传工资表后生成每位员工的 Word 工资单，并自动打包为 ZIP。</p>
             </div>
-            <span class="badge">临时处理</span>
+            <span class="badge">本地临时处理</span>
           </div>
 
           <form id="uploadForm">
             <label class="drop-zone" for="fileInput">
               <input id="fileInput" name="file" type="file" accept=".xlsx,.xlsm" />
-              <span class="file-icon">↓</span>
+              <span class="file-icon" aria-hidden="true">DOCX</span>
               <strong id="fileName">选择或拖入工资表</strong>
               <small>.xlsx / .xlsm</small>
             </label>
@@ -31,7 +40,10 @@
         </div>
 
         <div class="panel status-panel">
-          <h2>生成状态</h2>
+          <div class="status-heading">
+            <span class="eyebrow">Output</span>
+            <h2>生成状态</h2>
+          </div>
           <div id="emptyState" class="empty-state">等待上传工资表</div>
           <div id="result" class="result hidden"></div>
         </div>
